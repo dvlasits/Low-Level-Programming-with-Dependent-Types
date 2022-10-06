@@ -1,20 +1,37 @@
 import Data.Vect
 import System.FFI
-Number : Type
-Number = Struct "number" [("x", Int)]
 
 
+PointNum : Type
+PointNum = Struct "pointnum" [("ptr", Ptr Int), ("num", Int)]
 
 %foreign "C:getPointer, libsmall"
-getPointer : Number
+getPointer : Ptr Int
 
 %foreign "C:freePointer, libsmall"
-freePointer : Number -> Int
+freePointer : Ptr Int -> ()
 
 %foreign "C:readNumber, libsmall"
-readNumber : Number -> Int
+readNumber : (1 mem : Ptr Int) -> Int
+
+%foreign "C:writePointer, libsmall"
+writePointer : (1 mem : Ptr Int) -> Int -> Ptr Int
+
+%foreign "C:testFunc, libsmall"
+testFunc : (Int -> Int) -> Int
+
+ab : (1 mem : Ptr Int -> IO ()) -> IO ()
+ab f = f getPointer
+
+write : (1 mem : Ptr Int) -> Int -> ((1 mem : Ptr Int) -> IO ()) -> IO ()
+write ptr int f = let x = writePointer ptr int in f x
+
+read : (1 mem : Ptr Int) -> ((1 mem : Ptr Int) -> Int -> IO ()) -> IO ()
+read ptr f = let z = readNumber ptr  in f (getField z "ptr") (getField z "num")
+
+double : Int -> Int
+double x = x + x
+
 
 main : IO ()
-main = (printLn . freePointer) getPointer
-
-
+main = print $ testFunc double
