@@ -35,6 +35,8 @@ free mem = ?
 
 {- 3. codes for structs -}
 
+
+
 data Code : Type where
   CInt : Code
   CBool : Code
