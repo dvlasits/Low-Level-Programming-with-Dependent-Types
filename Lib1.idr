@@ -102,7 +102,7 @@ freeArr (Arr ptr) = fromPrim $ freePointer ptr
 
 
 x : IO ()
-x = createArr 10 (writeArr 40 200 ())
+x = createArr 10 (writeArr 9 200 (freeArr))
 
 
 
