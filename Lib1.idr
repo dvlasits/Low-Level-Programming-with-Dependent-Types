@@ -101,11 +101,51 @@ freeArr : (1 mem : MyVect m) -> IO ()
 freeArr (Arr ptr) = fromPrim $ freePointer ptr
 
 
+
+test : IO ()
+test = alloc (\x => (write 10 (\x2 => free x2) x))
+
+-->>= : M a -> (a -> M b) -> M b
+
+--action1 >>= (\x => action2 >>= (\x3 => action))
+
+{-x <- alloc
+x2 <- write 10 x
+free x2
+-}
+
+
 x : IO ()
-x = createArr 10 (writeArr 9 200 (freeArr))
+x =  do 
+    createArr 10 (writeArr 9 200 (freeArr))
+    print 10
+
+
 
 
 
 main : IO ()
-main = do
-        print 5
+main = x
+
+-- For Monad use?
+
+writeM :  Int -> (1 mem : MyPtr) -> ((1 mem : MyPtr) -> IO a) ->  IO a
+writeM int ptr f  = write int f ptr
+
+
+readM : (1 _ : MyPtr) -> (Int -> (1 mem : MyPtr) -> IO a) ->  IO a
+readM ptr f = read f ptr
+
+
+app : (1 _ : (a -> b)) -> a -> b
+app f g = f g
+
+
+--alloc (\x => (alloc (\x2 => )))
+
+-- read write and then free works, but free is IO so this is a terrible example
+t : IO ()
+t = let (>>=) = app in do
+    x <- alloc
+    x2 <- writeM 10 x
+    free x2
