@@ -1,10 +1,11 @@
-import LinearTryS
-
+import LinearLib
+import HelpfulLinear
 import Control.Linear.LIO
 import Prelude.Num
 import Data.Fin
 import Data.Nat
-import Helpful
+
+import Data.Vect
 
 
 finish : (1 mem : MyVect size) -> Bool -> L IO Bool
@@ -31,8 +32,6 @@ divhalves (S (S k)) = rewrite sym (plusSuccRightSucc k (S k)) in
                             rewrite divhalves k in Refl
 
 
-
-
 sub : Nat -> Nat -> Nat
 sub Z x = x
 sub (S k) (S x) = sub k x
@@ -48,7 +47,7 @@ addDub x = let x2 = plusLteMonotoneRight (S size) (rp) (S size) x in
            transitive x3 x2
 
 
---finish!!!!!
+
 plus1 : {lp : Nat} -> {rp : Nat} -> {size : Nat} -> LTE (S lp) rp -> LTE (rp) (S size) -> (m1 : Nat ** LTE (S m1) ((S size) + (S size)))
 plus1 {lp} {rp} x y = let x2 : (LTE (S (lp + rp)) (rp + rp)) = addBasic x in 
                       let x3 : (LTE (rp + rp) ((S size) + (S size))) = addDub y in 
@@ -65,7 +64,7 @@ rtp {a = (S (S k))} = let rec = rtp {a=k} in
                         LTESucc (LTESucc rec)
 
 
---finish!!!
+
 divFinal : {a : Nat} -> {b : Nat} -> (LT ((a + a)) (b + b)) -> (LT a b)
 divFinal {a = 0} {b = 0} x = x
 divFinal {a = 0} {b = (S k)} x = LTESucc LTEZero
@@ -101,12 +100,12 @@ binSearch'' {size} lp rp item arr =
                                 let (mid ** prf2) = div2WithPrf prf1 in
                                 let x3 = lteSuccLeft prf2 in do
                                 val # arr <- getIndex (natToFinLT mid) arr
-                                case compare val item of 
+                                case compare item val of 
                                     LT => case choose (lp < mid) of
                                         Left x => let _ = ltOpReflectsLT lp mid x in  binSearch'' lp mid item (arr)
                                         Right _ => finish arr False
                                     EQ => finish arr True
-                                    GT => case choose (S mid < rp) of 
+                                    GT => case choose ((S mid) < rp) of 
                                         Left x => let y = ltOpReflectsLT (S mid) rp x in 
                                                         binSearch'' (S mid) rp item (arr)
                                         Right _ => finish arr False
@@ -116,20 +115,16 @@ lteRefl : (size : Nat) -> (LTE size size)
 lteRefl Z = LTEZero
 lteRefl (S n) = LTESucc (lteRefl n)
 
-binSearch : (item : Int) -> (size : Nat ** MyVect (S size)) -> L IO Bool
-binSearch item (size ** arr) = let prf = lteRefl (S size) in 
+binSearch : {size : Nat} -> (item : Int) -> (1 _ : MyVect (S size)) -> L IO Bool
+binSearch item arr = let prf = lteRefl (S size) in 
                                     binSearch'' 0 (S size) item arr
 
 
 main : IO ()
 main = runLin $ do
-        x <- alloc
-        x <- write 10 x
-        val # x<- read x
-        putStrLn (cast val)
-        putStrLn (cast val)
-        free x
-
+        x <- vecToArr _ ([1, 6, 17, 19, 20, 25,100])
+        val <- binSearch (21) x
+        print val
 
 
 {-mutual

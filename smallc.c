@@ -9,7 +9,9 @@ typedef struct
 
 int *getPointer(void)
 {
-    return malloc(sizeof(int));
+    int *a = malloc(sizeof(int));
+    fprintf(stderr, "Getting a new pointer %d\n", a);
+    return a;
 }
 
 int *getArray(int size)
@@ -39,6 +41,7 @@ int testFunc(int (*ptr)(int))
 
 void freePointer(int *pt)
 {
+    fprintf(stderr, "Freeing pointer %d\n", pt);
     free(pt);
 }
 
