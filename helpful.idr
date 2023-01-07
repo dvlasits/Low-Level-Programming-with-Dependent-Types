@@ -7,16 +7,18 @@ import Data.Nat
 import Data.Vect
 import Data.List
 
-
-
-
-
-
-getIndexLTE : (toWrite : Int) -> (index : Nat) -> 
+{-getIndexLTE : (toWrite : Int) -> (index : Nat) -> 
                 {auto prf : LTE (S index) size} -> 
                 (1 mem : (MyVect size)) -> 
                 L IO {use=1} (MyVect size)
-getIndexLTE toWrite index arr  = writeArr toWrite (natToFinLT index) arr
+getIndexLTE toWrite index arr  = writeArr toWrite (natToFinLT index) arr-}
+
+
+doList : (l : List ((MyVect size) -> L IO (MyVect size))) -> (MyVect size) -> L IO {use=1} (MyVect size)
+doList [] x = pure1 x
+doList (f :: fs) x = (f x) >>= (doList fs)
+
+
 
 update : (Int -> Int) -> (Fin size) -> (1 _ : MyVect size) -> L IO {use=1} (MyVect size)
 update f index arr = do
@@ -28,10 +30,6 @@ vec' f FZ arr = update f FZ arr
 vec' f (FS x) arr = do
                 arr <- update f (FS x) arr
                 vec' f (weaken x) arr
-
-data VectView : Nat -> Type where
-        Nilll : VectView 0
-        Consss : (Int) -> VectView size -> VectView (S size)
 
 vecMap : (Int -> Int) -> (1 _ : MyVect size) -> L IO {use=1} (MyVect size)
 vecMap f (Arr (S s) sp ptr) = vec' f last (Arr (S s) sp ptr)
@@ -76,8 +74,8 @@ arrToList (Arr (S n) sp ptr) = do
                 x <- (arrToList' last (Arr (S n) sp ptr))
                 pure (reverse x)
 
-main : IO ()
+{-main : IO ()
 main = runLin $ do
         x <- listToArr [142,3,4]
         val <- arrToList x
-        print val
+        print val-}

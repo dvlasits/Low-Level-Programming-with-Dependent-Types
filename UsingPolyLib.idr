@@ -35,12 +35,23 @@ freeMinHeap : (1 _ : MinHeap (S size)) -> L IO ()
 freeMinHeap (MinHeapL v _) = freeArrL v
 
 
+
+divSmallerWithProof : (x : Nat) -> (y : Nat) -> {auto prf : LT x y} -> (x2 : Nat ** LT x2 y)
+divSmallerWithProof x y {prf} = (div2 x ** divSmaller {x=x} {y=y} prf)
+
+
+
 bubbleUp : (pos : Nat) -> {size : Nat} -> {auto prf : LTE (S pos) (S size)} -> (1 _ : MyVectL (S size) TInt p m) -> L IO {use=1} (MyVectL (S size) TInt p m)
 bubbleUp Z arr = pure1 arr
-bubbleUp (S x) {prf} arr = let newPos = div2 x in do
-                                            currEle # arr <- readArrL (natToFinLT x) arr
-                                            val # arr <- readArrL (natToFinLT newPos) arr 
-                                            ?onuthuooe
+bubbleUp (S x) {size} {prf} arr = let (newPos ** _) = divSmallerWithProof (S  x) (S size) {prf=prf} in do
+                                            currEle # arr <- readArrL (natToFinLT (S x)) arr
+                                            parent # arr <- readArrL (natToFinLT newPos) arr 
+                                            if currEle < parent then do
+                                                        arr <- writeArrL (natToFinLT newPos) currEle arr 
+                                                        arr <- writeArrL (natToFinLT (S x)) parent arr
+                                                        bubbleUp newPos arr
+                                                else do
+                                                        pure1 arr
 
 
 push : {size : Nat} -> (element : Int) -> (1 _ : MinHeap (S size)) -> L IO {use=1} (MinHeap (S size))
@@ -49,6 +60,8 @@ push {size} ele (MinHeapL arr containing) = case strengthen containing of
                                                 Just x => let pos = shift 1 x in do
                                                                                 arr <- writeArrL pos ele arr
                                                                                 pure1 (MinHeapL arr pos)
+
+
 
 
 

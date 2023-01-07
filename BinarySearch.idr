@@ -13,6 +13,7 @@ finish arr b = do
             freeArr arr
             pure b
 
+export
 div2 : Nat -> Nat
 div2 0 = 0
 div2 (S 0) = 0
@@ -23,6 +24,8 @@ divLinear : (LTE x y) -> (LTE (div2 x) (div2 y))
 divLinear LTEZero = LTEZero
 divLinear (LTESucc LTEZero) = LTEZero
 divLinear (LTESucc (LTESucc z)) = LTESucc (divLinear z)
+
+
 
 divhalves : (size : Nat) -> div2 (plus size size) = size
 divhalves 0 = Refl
@@ -119,13 +122,13 @@ binSearch : {size : Nat} -> (item : Int) -> (1 _ : MyVect (S size)) -> L IO Bool
 binSearch item arr = let prf = lteRefl (S size) in 
                                     binSearch'' 0 (S size) item arr
 
-
+{-
 main : IO ()
 main = runLin $ do
         x <- vecToArr _ ([1, 6, 17, 19, 20, 25,100])
-        val <- binSearch (21) x
+        val <- binSearch (100) x
         print val
-
+-}
 
 {-mutual
     divSmaller : (x : Nat) -> {auto _ : (NonZero x)} -> LTE (S (div2 x)) x
