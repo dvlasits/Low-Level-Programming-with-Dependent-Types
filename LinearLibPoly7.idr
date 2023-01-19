@@ -265,6 +265,31 @@ writeArrArr (ArrL s1 ptr2) t2 index (ArrL s2 ptr) = do
                                                 liftIO1 (fromPrim (writeStructStruct ptr2 ((sizeOfT2 t2)* (conv index)) ptr (cast s2)))
                                                 pure1 $ (ArrL s2 ptr) *?? (ArrL s1 ptr2)    
 
+{-
+Hopefully swap to this:
+export
+data ConvertIt3 : (t : Type2) -> (m : Nat) -> (parent : Maybe AnyPtr) -> (myptr : AnyPtr) -> Type -> Type where
+        [search t]
+        TIntCI3 : ConvertIt3 TInt m parent myptr (Int -> L IO {use=1} (MyVectL m TInt parent myptr))
+        TCharCI3 : ConvertIt3 TChar m parent myptr (Char -> L IO {use=1} (MyVectL m TChar parent myptr))
+        TStructCI3 : ConvertIt3 (TStruct l) m parent myptr ({m1 : Maybe AnyPtr} -> {p1 : AnyPtr} -> 
+                                                                                                (1 _ : MyStructL l m1 p1) -> L IO {use=1} (SpecialPair (MyStructL l m1 p1) (MyVectL m (TStruct l) parent myptr)))
+        TArrCI3 : ConvertIt3 (TArr s2 l) m parent myptr ({m1 : Maybe AnyPtr} -> {p1 : AnyPtr} ->
+                                                                (1 _ : MyVectL (S s2) l m1 p1) -> L IO {use=1} (SpecialPair (MyVectL (S s2) l m1 p1) (MyVectL m (TArr s2 l) parent myptr)))
+
+export
+writeArrL : {a : Type2} -> (index : Fin m)  -> (1 _ : MyVectL m a parent myptr) -> {auto 0 ci : ConvertIt3 a m parent myptr conv} -> conv {-(case a of 
+                                                                                TInt => Int -> L IO {use=1} (MyVectL m a parent myptr)
+                                                                                TChar => Char -> L IO {use=1} (MyVectL m a parent myptr)
+                                                                                TStruct l => {m1 : Maybe AnyPtr} -> {p1 : AnyPtr} -> 
+                                                                                                (1 _ : MyStructL l m1 p1) -> L IO {use=1} (SpecialPair (MyStructL l m1 p1) (MyVectL m a parent myptr))
+                                                                                TArr s2 l => {m1 : Maybe AnyPtr} -> {p1 : AnyPtr} ->
+                                                                                                (1 _ : MyVectL (S s2) l m1 p1) -> L IO {use=1} (SpecialPair (MyVectL (S s2) l m1 p1) (MyVectL m a parent myptr)))-}
+writeArrL index vec {ci=TIntCI3}  = assert_linear writeArrInt vec index
+writeArrL index vec {ci=TCharCI3} = assert_linear writeArrChar vec index
+writeArrL index vec {ci=TStructCI3} = assert_linear (assert_linear writeArrStruct vec index)
+writeArrL {a=TArr s t2} index vec {ci=TArrCI3}= assert_linear (assert_linear writeArrArr vec t2 index)
+-}
 
 writeArrL : {a : Type2} -> (index : Fin m)  -> (1 _ : MyVectL m a parent myptr) -> (case a of 
                                                                                 TInt => Int -> L IO {use=1} (MyVectL m a parent myptr)
@@ -277,7 +302,6 @@ writeArrL {a=TInt} index vec = assert_linear writeArrInt vec index
 writeArrL {a=TChar} index vec = assert_linear writeArrChar vec index
 writeArrL {a=TStruct l} index vec = assert_linear (assert_linear writeArrStruct vec index)
 writeArrL {a=TArr s t2} index vec = assert_linear (assert_linear writeArrArr vec t2 index)
-
 
 
 
@@ -304,11 +328,31 @@ writeArrL : {a : Type2} -> (index : Fin m) -> (convType2 a) -> (1 _ : MyVectL m 
 writeArrL index item = assert_linear (writeArrL' index item)
 -}
 
+--WRITE STRUCT NEEDS TO BE UPDATED!!!!!!!!!!!!!!!!!!
+
 
 writeStructL' : (loc : Fin (S m)) -> {t : Vect (S m) Type2} -> (convType2 (index loc t)) -> (MyStructL t a myptr) -> L IO {use=1} (MyStructL t a myptr)
 writeStructL' index item struct' = let struct = toStruct struct' in do
                                 liftIO1 {io=L IO} ((writeStruct index item) struct)
                                 pure1 (struct')
+
+
+
+--Come back to this!!!!
+{-
+writeStructL'' : (loc : Fin (S m)) -> {t : Vect (S m) Type2} -> (MyStructL t parent myptr) -> L IO {use=1} (case (index loc t) of 
+                                                                                TInt => Int -> L IO {use=1} (MyStructL t parent myptr)
+                                                                                TChar => Char -> L IO {use=1} (MyStructL t parent myptr)
+                                                                                TStruct l => {m1 : Maybe AnyPtr} -> {p1 : AnyPtr} -> 
+                                                                                                (1 _ : MyStructL l m1 p1) -> L IO {use=1} (SpecialPair (MyStructL l m1 p1) (MyStructL t parent myptr))
+                                                                                TArr s2 l => {m1 : Maybe AnyPtr} -> {p1 : AnyPtr} ->
+                                                                                                (1 _ : MyVectL (S s2) l m1 p1) -> L IO {use=1} (SpecialPair (MyVectL (S s2) l m1 p1) (MyStructL t parent myptr)))
+writeStructL'' loc {t} struct' with (index loc t) proof p 
+                        writeStructL'' loc struct' | TInt = flip (writeStructL' loc) struct'
+                        writeStructL'' loc struct' | TChar = flip (writeStructL' loc) struct'
+-}
+
+
 
 
 export
@@ -386,6 +430,40 @@ readArrL {t=t} index arr =  do
                         pure1 y
 
 
+-- Fully Linear Read 
+{-
+export
+data ConvertIt3 : (t : Type2) -> (m : Nat) -> (parent : Maybe AnyPtr) -> (myptr : AnyPtr) -> Type -> Type where
+        [search t]
+        TIntCI : ConvertIt2 TInt m parent myptr (Res Int (\_ => MyVectL m TInt parent myptr))
+        TCharCI : ConvertIt2 TChar m parent myptr (Res Char (\_ =>MyVectL m tTChar parent myptr))
+        TStructCI : ConvertIt2 (TStruct l) m parent myptr (SpecialPair (DPair2 AnyPtr (\kidpointer => MyStructL l (Just (myptr)) kidpointer)) (MyVectL m (TStruct l) parent myptr))
+        TArrCI : ConvertIt2 (TArr s2 l) m parent myptr (SpecialPair (DPair2 AnyPtr (\kidpointer => MyVectL (S s2) l (Just myptr) kidpointer)) (MyVectL m (TArr s2 l) parent myptr))
+
+
+
+readArrL' : {t : Type2} -> (index : Fin m) -> (MyVectL m t parent myptr) -> {auto 0 ci : ConvertIt3 t m parent myptr out} ->  L IO {use=1} (out)
+readArrL' index (ArrL s ptr) {ci=TIntCI} = toLIO1 $ ((# (ArrL s ptr)) <$> (fromPrim (readPointerOffset (conv index) ptr)))
+readArrL' index (ArrL s ptr) {ci=TCharCI} = toLIO1 $ ((# (ArrL s ptr)) <$> (fromPrim (readPointerOffsetChar (conv index) ptr)))
+readArrL' {t=TStruct l}index (ArrL s ptr) {ci=TStructCI} = toLIO1 (do
+                                            x <- (fromPrim (getStructStruct ptr (conv index * (sizeofStruct l))))
+                                            pure ((x *? (StructCreateL l (sizeofStruct l) x)) *?? (ArrL s ptr)))
+readArrL' {t=TArr s t2} index (ArrL s1 ptr) {ci=TArrCI} =  toLIO1 (do
+                                                    ptr1 <- (fromPrim (getStructStruct ptr (conv index * (sizeOfT2 t2))))
+                                                    pure ((ptr1 *? (ArrL s ptr1)) *?? (ArrL s1 ptr))
+                                                    )
+
+export
+readArrL : {t : Type2} -> (index : Fin m) -> (1 _ : MyVectL m t parent myptr) -> {auto 0 ci : ConvertIt2 t m parent myptr out} ->  L IO {use=1} (out)
+readArrL {t=t} index arr =  do
+                        (x1 # x2) <- copyPlace arr
+                        consume x2
+                        x <-  readArrL' index x1
+                        y <- assert_linear pure x
+                        pure1 y
+
+
+-}
 
 
 
@@ -491,9 +569,9 @@ runLin : (Applicative io, LinearBind io) => (1 _ : L io a) -> io a
 runLin = Control.Linear.LIO.run
 
 
-
-
 {-
+
+
 main : IO ()
 main = runLin $ do
     print 5 

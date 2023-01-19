@@ -36,19 +36,21 @@ freeMinHeap (MinHeapL v _) = freeArrL v
 
 
 
-divSmallerWithProof : (x : Nat) -> (y : Nat) -> {auto prf : LT x y} -> (x2 : Nat ** LT x2 y)
-divSmallerWithProof x y {prf} = (div2 x ** divSmaller {x=x} {y=y} prf)
+
+div2Fin : (Fin s) -> (Fin s)
+div2Fin FZ = FZ
+div2Fin (FS FZ) = FZ
+div2Fin (FS (FS x)) = FS (weaken (div2Fin x))
 
 
-
-bubbleUp : (pos : Nat) -> {size : Nat} -> {auto prf : LTE (S pos) (S size)} -> (1 _ : MyVectL (S size) TInt p m) -> L IO {use=1} (MyVectL (S size) TInt p m)
-bubbleUp Z arr = pure1 arr
-bubbleUp (S x) {size} {prf} arr = let (newPos ** _) = divSmallerWithProof (S  x) (S size) {prf=prf} in do
-                                            currEle # arr <- readArrL (natToFinLT (S x)) arr
-                                            parent # arr <- readArrL (natToFinLT newPos) arr 
+bubbleUp : {size : Nat} -> (pos : Fin (S size)) -> (1 _ : MyVectL (S size) TInt p m) -> L IO {use=1} (MyVectL (S size) TInt p m)
+bubbleUp FZ arr = pure1 arr
+bubbleUp {size} (FS x) arr = let newPos = div2Fin (weaken x) in do
+                                            currEle # arr <- readArrL (FS x) arr
+                                            parent # arr <- readArrL (newPos) arr 
                                             if currEle < parent then do
-                                                        arr <- writeArrL (natToFinLT newPos) arr currEle
-                                                        arr <- writeArrL (natToFinLT (S x)) arr parent
+                                                        arr <- writeArrL (newPos) arr currEle
+                                                        arr <- writeArrL (FS x) arr parent
                                                         bubbleUp newPos arr
                                                 else do
                                                         pure1 arr
@@ -58,8 +60,120 @@ push : {size : Nat} -> (element : Int) -> (1 _ : MinHeap (S size)) -> L IO {use=
 push {size} ele (MinHeapL arr containing) = case strengthen containing of
                                                 Nothing => (pure1 $ MinHeapL arr containing)
                                                 Just x => let pos = shift 1 x in do
-                                                                                arr <- writeArrL pos arr ele
-                                                                                pure1 (MinHeapL arr pos)
+                                                                                arr <- writeArrL containing arr ele
+                                                                                arr <- bubbleUp containing arr
+                                                                                pure1 (MinHeapL arr (shift 1 x))
+
+
+printIntArr' : {size : Nat} -> (pos : Fin (S size)) -> (1 _ : MyVectL (S size) TInt p m) -> L IO {use=1} (Res String (\_ => MyVectL (S size) TInt p m))
+printIntArr' FZ arr = do
+                        ele # arr <- readArrL FZ arr
+                        pure1 $ (show ele) # arr
+printIntArr' (FS x) arr = do
+                        ele # arr <- readArrL (FS x) arr
+                        s # arr <- printIntArr' (weaken x) arr
+                        pure1 $ (s ++ "," ++ show ele) # arr
+
+
+printIntArr : {size : Nat} -> (1 _ : MyVectL (S size) TInt p m) -> L IO {use=1} (Res String (\_ => MyVectL (S size) TInt p m))
+printIntArr arr = printIntArr' last arr
+
+swapGreater : {size : Nat} -> (pos1 : Fin (S size)) -> (pos2 : Fin (S size)) -> (1 _ : MinHeap (S size)) -> L IO {use=1} (Res Bool (\_ => MinHeap (S size)))
+swapGreater pos1 pos2 (MinHeapL arr (FZ)) = pure1 $ False # (MinHeapL arr (FZ))
+swapGreater pos1 pos2 (MinHeapL arr (FS x)) = do
+                                        item1 # arr <- readArrL pos1 arr
+                                        item2 # arr <- readArrL pos2 arr
+                                        case compare item2 item1 of 
+                                                LT => do 
+                                                        arr <- writeArrL pos1 arr item2
+                                                        arr <- writeArrL pos2 arr item1
+                                                        pure1 $ True # (MinHeapL arr (FS x))
+                                                EQ => pure1 $ False # (MinHeapL arr (FS x))
+                                                GT => pure1 $ False # (MinHeapL arr (FS x))
+
+
+
+
+
+bubbleDown : {size : Nat} -> (start : (Fin (S size))) -> (1 _ : MinHeap (S size)) -> L IO {use=1} (MinHeap (S size))
+bubbleDown start (MinHeapL arr FZ) = pure1 (MinHeapL arr FZ)       
+bubbleDown {size} start (MinHeapL arr containing) = let heap = (MinHeapL arr containing) in let c1 = (2* (finToInteger start) + 1) in 
+                                                        let c2 = c1 + 1 in 
+                                                                case integerToFin c1 (S size) of 
+                                                                        Nothing => pure1 heap
+                                                                        Just c1 => do   
+                                                                                        if c1 < containing then do
+                                                                                                b # heap <- swapGreater start c1 heap
+                                                                                                case b of 
+                                                                                                        True => bubbleDown c1 heap
+                                                                                                        False => case integerToFin c2 (S size) of 
+                                                                                                                        Nothing => pure1 heap
+                                                                                                                        Just c2 => 
+                                                                                                                                   if c2 < containing then do     
+                                                                                                                                        b # heap <- swapGreater start c2 heap
+                                                                                                                                        case b of 
+                                                                                                                                                True => bubbleDown c2 heap
+                                                                                                                                                False => pure1 heap
+                                                                                                                                        else pure1 heap
+                                                                                                else
+                                                                                                        pure1 heap
+                                                                                        
+
+
+
+pop : {size : Nat} -> (1 _ : MinHeap (S size)) -> L IO {use=1} (Res (Maybe Int) (\_ => MinHeap (S size)))
+pop (MinHeapL arr FZ) =  pure1 $ Nothing # (MinHeapL arr FZ)
+pop (MinHeapL arr (FS x)) = do
+                        toReturn # arr <- readArrL 0 arr
+                        lastEle # arr <- readArrL (weaken x) arr
+                        arr <- writeArrL (weaken x) arr 0
+                        arr <- writeArrL 0 arr lastEle
+                        s # arr <- printIntArr arr
+                        heap <- bubbleDown 0 (MinHeapL arr (weaken x))
+                        pure1 $ (Just toReturn) # heap
+
+
+
+
+printHeap : {size : Nat} -> (1 _ : MinHeap (S size)) -> L IO {use=1} (MinHeap (S size))
+printHeap (MinHeapL arr containing) = do
+                                s # arr <- printIntArr arr
+                                pure1 (MinHeapL arr containing)
+
+main : IO ()
+main = runLin $ do
+                h <- createMinHeap 10
+
+                h <- push 10 h
+                h <- printHeap h
+                h <- push 9 h
+                h <- printHeap h
+                h <- push 8 h
+                h <- printHeap h
+                h <- push 7 h
+                h <- printHeap h
+                h <- push 3 h
+                h <- printHeap h
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                ele # h <- pop h
+                h <- printHeap h
+                putStrLn $ (show ele)
+                
+                freeMinHeap h
 {-
 vec' : (Int -> Int) -> (Fin size) -> (1 _ : MyVect size) -> L IO {use=1} (MyVect size)
 vec' f FZ arr = update f FZ arr
@@ -77,8 +191,7 @@ data ConvertIt : (t : Type2) -> Type -> Type where
         TStructCIF : ConvertIt (TStruct l) ({m : Maybe AnyPtr} -> {p : AnyPtr} -> (1 _ : MyStructL l m p) -> L IO {use=1} (MyStructL l m p))
         TArrCIF : ConvertIt (TArr s t) ({p : Maybe AnyPtr} -> {m : AnyPtr} -> (1 _ : MyVectL (S s) t p m) -> L IO {use=1} (MyVectL (S s) t p m))
 
-
-update : {t : Type2} -> {s : Nat} -> (Fin (S s)) -> {auto 0 ci : ConvertIt t func} -> func
+update : {t : Type2} -> {auto 0 ci : ConvertIt t func}-> {s : Nat} -> (Fin (S s))  -> func
                                                         -> {parent : Maybe AnyPtr} -> (1 _ : MyVectL (S s) t parent my)
                                                         -> L IO {use=1} (MyVectL (S s) t parent my)
 update pos {ci=TIntCIF} f vec = do
@@ -98,11 +211,7 @@ update pos {ci=TArrCIF} f vec = do
                         oneStruct *?? vec <- writeArrL pos vec oneStruct
                         freeKid vec oneStruct
 
-
-
-
-
-genericMap' : {t : Type2} -> {s : Nat} -> {parent : Maybe AnyPtr} ->  (1 _ : MyVectL (S s) t parent my) -> (Fin (S s)) -> {auto 0 ci : ConvertIt t func} -> func
+genericMap' : {t : Type2} -> {auto 0 ci : ConvertIt t func} -> {parent : Maybe AnyPtr} ->{s : Nat} ->   (1 _ : MyVectL (S s) t parent my) -> (Fin (S s))  -> func
                                                                                 -> L IO {use=1} (MyVectL (S s) t parent my)
 genericMap' vec FZ f = pure1 vec
 genericMap' vec (FS x) f = do
@@ -139,12 +248,6 @@ genericPrintArr {t} with (t) proof g
                 
 -}
 
-
-main : IO ()
-main = runLin $ do
-                (_ *? arr) <- createArrL TInt 10
-                arr <- intMap arr (the (Int -> Int) $ const 5)
-                free arr
 
 
 
