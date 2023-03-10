@@ -148,11 +148,11 @@ example5 = runLin $ do
                 myPointer <- writeLin 20 myPointer
                 freeLin myPointer
 
-data LinPair : Type -> Type -> Type where
-    (*?) : a -> (1 _ : b) -> LinPair a b
+data SemiLinPair : Type -> Type -> Type where
+    (*?) : a -> (1 _ : b) -> SemiLinPair a b
 infixr 4 *?
 
-readLin : (1 _ : SafePointer) -> L IO {use=Linear} (LinPair Int SafePointer)
+readLin : (1 _ : SafePointer) -> L IO {use=Linear} (SemiLinPair Int SafePointer)
 readLin (ConstructSafePointer ptr) = do
                                 x <- liftIO1 $ readUnsafe ptr
                                 pure1 $ x *? (ConstructSafePointer ptr)
@@ -198,10 +198,10 @@ forceUnrestricted act = do
                         assert_linear pure x
 
 
-readTP : (1 _ : TrackedPointer parent self) -> L IO {use=1} (LinPair Int (TrackedPointer parent self))
+readTP : (1 _ : TrackedPointer parent self) -> L IO {use=1} (SemiLinPair Int (TrackedPointer parent self))
 readTP = assert_linear readTP'
     where
-        readTP' : (TrackedPointer parent self) -> L IO {use=1} (LinPair Int (TrackedPointer parent self))
+        readTP' : (TrackedPointer parent self) -> L IO {use=1} (SemiLinPair Int (TrackedPointer parent self))
         readTP' trackedPointer = do 
                         let (CreateTrackedPointer ptr) = trackedPointer
                         int *? _ <- forceUnrestricted $ readLin ptr
@@ -216,7 +216,224 @@ writeTP int = assert_linear writeTP'
                             _ <- forceUnrestricted $ writeLin int ptr
                             pure1 trackedPointer
 
+data LinPair : Type -> Type -> Type where
+    (??) : (1 _ : a) -> (1 _ : b) -> LinPair a b
+infixr 4 ??
+
+copyTP : (1 _ : TrackedPointer grandparent parent) -> L IO {use=1} (LinPair (TrackedPointer (Just parent) parent) (TrackedPointer grandparent parent))
+copyTP = assert_linear copyTP'
+    where
+        copyTP' : (TrackedPointer grandparent parent) -> L IO {use=1} (LinPair (TrackedPointer (Just parent) parent) (TrackedPointer grandparent parent))
+        copyTP' tp = pure1 $ believe_me tp ?? tp
+
+{-
+main : IO ()
+main = runLin $ do
+            _ # ptr <- allocTP
+            kid ?? ptr <- copyTP ptr
+            kid <- writeTP 50 kid
+            int *? ptr <- readTP ptr
+            print int
+            ptr <- freeKidTP ptr kid
+            freeTP ptr
+-}
+
 -- Section 3.4 Arrays -- PICK UP FROM HERE
+
+--Array Int primitives
+
+%foreign "C:create_int_array, pointer_functions"
+allocIntArray_C : Int -> PrimIO AnyPtr
+
+%foreign "C:write_int_array, pointer_functions"
+writeIntArray_C : (loc : Int) -> (to_write : Int) -> (1 _ : AnyPtr) -> PrimIO ()
+
+%foreign "C:read_int_array, pointer_functions"
+readIntArray_C : (loc : Int) -> (1 _ : AnyPtr) -> PrimIO Int
+
+
+
+private 
+data IntArray : Nat -> Maybe SafePointer' -> SafePointer' -> Type where
+    CreateIntArray : (len : Nat) -> TrackedPointer parent self -> IntArray (S len) parent self
+
+
+createIntArray : (size : Nat) -> L IO {use=Linear} (Res SafePointer' (\self => IntArray (S size) Nothing self))
+createIntArray size = do
+                    ptr <- ConstructSafePointer <$> liftIO1 (fromPrim (allocIntArray_C . cast $ (S size)))
+                    pure1 $ (ConstructSafePointer' ptr) # (CreateIntArray size (CreateTrackedPointer ptr))
+
+--Fin is kinda shit
+conv : (Fin m) -> Int
+conv = cast . finToInteger 
+
+private
+getPointerFromIntArray : IntArray _ _ _ -> AnyPtr
+getPointerFromIntArray (CreateIntArray _ (CreateTrackedPointer (ConstructSafePointer ptr))) = ptr
+
+writeIntArray : (Fin (S size)) -> Int -> (1 _ : IntArray (S size) parent self) -> L IO {use=Linear} (IntArray (S size) parent self)
+writeIntArray loc to_write = assert_linear writeIntArray'
+    where
+        writeIntArray' : IntArray (S size) parent self -> L IO {use=Linear} (IntArray (S size) parent self)
+        writeIntArray' intArray = do
+                                let ptr = getPointerFromIntArray intArray
+                                liftIO1 (fromPrim (writeIntArray_C (conv loc) to_write ptr))
+                                pure1 intArray
+
+readIntArray : (Fin (S size)) -> (1 _ : IntArray (S size) parent self) -> L IO {use=Linear} (SemiLinPair Int (IntArray (S size) parent self))
+readIntArray loc = assert_linear readIntArray'
+    where
+        readIntArray' : IntArray (S size) parent self -> L IO {use=Linear} (SemiLinPair Int (IntArray (S size) parent self))
+        readIntArray' intArray = do
+                            let ptr = getPointerFromIntArray intArray
+                            val <- liftIO1 (fromPrim (readIntArray_C (conv loc) ptr))
+                            pure1 $ val *? intArray
+
+freeIntArray : (1 _ : IntArray size Nothing self) -> L IO ()
+freeIntArray = assert_linear freeIntArray'
+    where
+        freeIntArray' : IntArray _ _ _ -> L IO ()
+        freeIntArray' intArray = do
+                                let ptr = getPointerFromIntArray intArray
+                                liftIO1 $ freeUnsafe ptr
+
+freeIntArrayKid : (1 _ : IntArray size grandparent parent) -> (1 _ : IntArray _ (Just parent) _) -> L IO {use=1} (IntArray size grandparent parent)
+freeIntArrayKid parent child = do
+                            assert_linear consume child
+                            pure1 parent
+                        where
+                            consume : (IntArray _ _ _) -> L IO ()
+                            consume _ = pure ()
+
+duplicateIntArray : (1 _ : IntArray size grandparent parent) -> L IO {use=1} (LinPair (IntArray size (Just parent) parent) (IntArray size grandparent parent))
+duplicateIntArray = assert_linear duplicateIntArray'
+    where
+        duplicateIntArray' : IntArray size grandparent parent -> L IO {use=1} (LinPair (IntArray size (Just parent) parent) (IntArray size grandparent parent))
+        duplicateIntArray' intArray = pure1 $ believe_me intArray ?? intArray
+
+-- We now get onto polymorphism with typeclasses
+
+private
+data SimplePolyArray : Nat -> (elem : Type) -> Maybe SafePointer' -> SafePointer' -> Type where
+    CreateSimplePolyArray : (len : Nat) -> (TrackedPointer parent self) -> SimplePolyArray (S len) a parent self
+
+interface CType a where
+    createArraySimplePoly : (size : Nat) -> L IO {use=Linear} (Res SafePointer' (\self => SimplePolyArray (S size) a Nothing self))
+    readArraySimplePoly : (loc : Fin (S size)) -> (1 _ : SimplePolyArray (S size) a parent self) -> L IO {use=Linear} (SemiLinPair a (SimplePolyArray (S size) a parent self))
+    writeArraySimplePoly : (loc : Fin (S size)) -> a -> (1 _ : SimplePolyArray (S size) a parent self) -> L IO {use=Linear} (SimplePolyArray (S size) a parent self)
+
+-- Functions which are equivalent independnt of type of element withn
+
+freeArraySimplePoly : (1 _ : SimplePolyArray _ _ Nothing _) -> L IO {use=Unrestricted} ()
+freeArraySimplePoly = assert_linear freeArraySimplePoly'
+    where
+        freeArraySimplePoly' : (SimplePolyArray _ _ _ _) -> L IO ()
+        freeArraySimplePoly' _ = pure ()
+
+duplicateSimplePolyArray : (1 _ : SimplePolyArray size a grandparent parent) -> L IO {use=1} (LinPair (SimplePolyArray size a (Just parent) parent) (SimplePolyArray size a grandparent parent))
+duplicateSimplePolyArray = assert_linear duplicateSimplePolyArray'
+    where
+        duplicateSimplePolyArray' : SimplePolyArray size a grandparent parent -> L IO {use=1} (LinPair (SimplePolyArray size a (Just parent) parent) (SimplePolyArray size a grandparent parent))
+        duplicateSimplePolyArray' polyArr = pure1 $ believe_me polyArr ?? polyArr
+
+freeKidSimplePolyArray : (1 _ : SimplePolyArray size a grandparent parent) -> (1 _ : SimplePolyArray _ a (Just parent) _) -> L IO {use=1} (SimplePolyArray size a grandparent parent)
+freeKidSimplePolyArray parent child = do
+                                assert_linear consume child
+                                pure1 parent
+                        where
+                            consume : (SimplePolyArray _ _ _ _) -> L IO ()
+                            consume _ = pure ()
+
+-- Here we create functions to create the above functions when passed the correct C primitive
+
+private
+createArraySimplePolyGeneric : (Int -> PrimIO AnyPtr) -> (size : Nat) -> L IO {use=1} (Res SafePointer' (\self => SimplePolyArray (S size) a Nothing self))
+createArraySimplePolyGeneric allocArr size = do
+                                    ptr <- ConstructSafePointer <$> liftIO1 (fromPrim (allocArr (cast (S size))))
+                                    pure1 $ (ConstructSafePointer' ptr) # (CreateSimplePolyArray size (CreateTrackedPointer ptr))
+
+private
+getPointerFromSimplePolyArray : (SimplePolyArray _ _ _ _) -> AnyPtr
+getPointerFromSimplePolyArray (CreateSimplePolyArray _ (CreateTrackedPointer (ConstructSafePointer ptr))) = ptr
+
+private 
+writeArraySimplePolyGeneric : (Int -> a -> (1 _ : AnyPtr) -> PrimIO ()) -> (Fin (S size)) -> a -> (1 _ : SimplePolyArray (S size) a parent self) -> L IO {use=Linear} (SimplePolyArray (S size) a parent self)
+writeArraySimplePolyGeneric writeArr loc to_write = assert_linear writeArraySimplePolyGeneric'
+    where
+        writeArraySimplePolyGeneric' : SimplePolyArray (S size) a parent self -> L IO {use=Linear} (SimplePolyArray (S size) a parent self)
+        writeArraySimplePolyGeneric' polyArr = do
+                                            let ptr = getPointerFromSimplePolyArray polyArr
+                                            liftIO1 (fromPrim (writeArr (conv loc) to_write ptr))
+                                            pure1 polyArr
+
+private 
+readArraySimplePolyGeneric : (Int -> (1 _ : AnyPtr) -> PrimIO.PrimIO a) -> (Fin (S size)) -> (1 _ : SimplePolyArray (S size) a parent self) -> L IO {use=Linear} (SemiLinPair a (SimplePolyArray (S size) a parent self))
+readArraySimplePolyGeneric readArr loc = assert_linear readArraySimplePolyGeneric'
+    where
+        readArraySimplePolyGeneric' : SimplePolyArray (S size) a parent self -> L IO {use=Linear} (SemiLinPair a (SimplePolyArray (S size) a parent self))
+        readArraySimplePolyGeneric' polyArr = do
+                                            let ptr = getPointerFromSimplePolyArray polyArr
+                                            val <- liftIO1 (fromPrim (readArr (conv loc) ptr))
+                                            pure1 $ val *? polyArr
+
+CType Int where
+    createArraySimplePoly = createArraySimplePolyGeneric allocIntArray_C
+    readArraySimplePoly = readArraySimplePolyGeneric readIntArray_C
+    writeArraySimplePoly = writeArraySimplePolyGeneric writeIntArray_C
+
+-- Adding Chars
+
+%foreign "C:create_char_array, pointer_functions"
+allocCharArray_C : Int -> PrimIO AnyPtr
+
+%foreign "C:write_char_array, pointer_functions"
+writeCharArray_C : (loc : Int) -> (to_write : Char) -> (1 _ : AnyPtr) -> PrimIO ()
+
+%foreign "C:read_char_array, pointer_functions"
+readCharArray_C : (loc : Int) -> (1 _ : AnyPtr) -> PrimIO Char
+
+CType Char where
+    createArraySimplePoly = createArraySimplePolyGeneric allocCharArray_C
+    readArraySimplePoly = readArraySimplePolyGeneric readCharArray_C
+    writeArraySimplePoly = writeArraySimplePolyGeneric writeCharArray_C
+
+
+main : IO ()
+main = runLin $ do
+            _ # ptr <- createArraySimplePoly 9
+            ptr <- writeArraySimplePoly 5 'k' ptr
+            ptr2 ?? ptr <- duplicateSimplePolyArray ptr
+            val *? ptr2 <- readArraySimplePoly 5 ptr2
+            print val
+            ptr <- freeKidSimplePolyArray ptr ptr2
+            freeArraySimplePoly ptr
+            
+-- Move onto section 3.6 full polymorphism
+
+-- TODO simple polymorphism with ValidInt + ValidChar
+-- This is purely for explanation purposes so does not include code necessary for pointer duplaction
+
+data ValidType' = ValidInt' | ValidChar'
+
+validTypeToType' : ValidType' -> Type
+validTypeToType' ValidInt' = Int
+validTypeToType' ValidChar' = Char
+
+data PolyArr' : Nat -> ValidType' -> Type where
+    CreatePolyArr' : (len : Nat) -> SafePointer -> PolyArr' (S len) validType'
+
+private
+createArrayPolyGeneric' : (Int -> PrimIO AnyPtr) -> (size : Nat) -> L IO {use=1} (PolyArr' (S size) a)
+createArrayPolyGeneric' allocArr size = do
+                                    ptr <- ConstructSafePointer <$> liftIO1 (fromPrim (allocArr (cast (S size))))
+                                    pure1 $ (CreatePolyArr' size  ptr)
+
+
+createPolyArr' : (size : Nat) -> (validType' : ValidType') -> L IO {use=1} (PolyArr' (S size) validType')
+createPolyArr' size ValidInt' = createArrayPolyGeneric' allocIntArray_C size
+createPolyArr' size ValidChar' = createArrayPolyGeneric' allocCharArray_C size
+
+
 
 
 {-  
@@ -273,6 +490,3 @@ writeStructStruct : AnyPtr -> (offset : Int) -> AnyPtr -> Int -> PrimIO ()
 
 -}
 
-
-main : IO ()
-main = print 20
