@@ -27,9 +27,19 @@ void free_pointer(void *pt)
 
 // Array int primitives
 
+void *create_int_array_long(double size)
+{
+    return malloc(sizeof(int) * size);
+}
+
 void *create_int_array(int size)
 {
     return malloc(sizeof(int) * size);
+}
+
+void write_int_array_long(double loc, int item, void *ptr)
+{
+    ((int *)ptr)[(long long)loc] = item;
 }
 
 void write_int_array(int loc, int item, void *ptr)
